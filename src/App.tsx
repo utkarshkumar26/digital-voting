@@ -1,7 +1,6 @@
 
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth, isAdmin, isVoter } from "./context/AuthContext";
@@ -50,37 +49,35 @@ const AdminRoute = ({ children }: { children: JSX.Element }) => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <AuthProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/login" element={<VoterLogin />} />
-              <Route path="/admin-login" element={<AdminLogin />} />
-              <Route path="/verify-id" element={
-                <VoterRoute>
-                  <VerifyId />
-                </VoterRoute>
-              } />
-              <Route path="/dashboard" element={
-                <VoterRoute>
-                  <VoterDashboard />
-                </VoterRoute>
-              } />
-              <Route path="/admin" element={
-                <AdminRoute>
-                  <AdminDashboard />
-                </AdminRoute>
-              } />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Layout>
-        </BrowserRouter>
-      </AuthProvider>
-    </TooltipProvider>
+    <AuthProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<VoterLogin />} />
+            <Route path="/admin-login" element={<AdminLogin />} />
+            <Route path="/verify-id" element={
+              <VoterRoute>
+                <VerifyId />
+              </VoterRoute>
+            } />
+            <Route path="/dashboard" element={
+              <VoterRoute>
+                <VoterDashboard />
+              </VoterRoute>
+            } />
+            <Route path="/admin" element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
+            } />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Layout>
+      </BrowserRouter>
+    </AuthProvider>
   </QueryClientProvider>
 );
 
