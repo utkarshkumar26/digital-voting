@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -194,18 +193,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  // OTP verification
+  // OTP verification - fixing the type error
   const verifyOtp = async (otp: string): Promise<boolean> => {
     try {
       setLoading(true);
       
-      if (!pendingPhone && !pendingEmail) {
-        toast.error('No authentication method found. Please try logging in again.');
+      if (!pendingEmail) {
+        toast.error('No email found. Please try logging in again.');
         return false;
       }
       
+      // Fix: Use the correct type for verifyOtp parameters
       const { error } = await supabase.auth.verifyOtp({
-        phone: pendingPhone,
         email: pendingEmail,
         token: otp,
         type: 'email'
@@ -213,7 +212,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       if (error) throw error;
       
-      setPendingPhone(null);
       setPendingEmail(null);
       toast.success('OTP verified successfully');
       return true;
