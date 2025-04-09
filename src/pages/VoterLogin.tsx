@@ -7,13 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/AuthContext';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { InfoIcon } from 'lucide-react';
+import { InfoIcon, MailIcon, RefreshCwIcon } from 'lucide-react';
 
 const VoterLogin = () => {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const { loginWithEmail, verifyOtp, loading } = useAuth();
+  const { loginWithEmail, verifyOtp, resendOtp, loading } = useAuth();
   const navigate = useNavigate();
 
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -29,6 +29,13 @@ const VoterLogin = () => {
     const success = await verifyOtp(otp);
     if (success) {
       navigate('/verify-id');
+    }
+  };
+
+  const handleResendOtp = async () => {
+    const success = await resendOtp();
+    if (success) {
+      setOtp(''); // Clear OTP field
     }
   };
 
@@ -56,14 +63,18 @@ const VoterLogin = () => {
               <div className="grid gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="Enter your email address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
+                  <div className="flex items-center relative">
+                    <MailIcon className="w-4 h-4 absolute left-3 text-gray-500" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Enter your email address"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-10"
+                      required
+                    />
+                  </div>
                 </div>
                 <Button 
                   type="submit" 
@@ -89,16 +100,30 @@ const VoterLogin = () => {
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    For demo, use OTP: 123456 or check your email for the actual code
+                    Check your email for the verification code sent to you
                   </p>
                 </div>
-                <Button 
-                  type="submit" 
-                  className="w-full bg-india-saffron hover:bg-india-saffron/90" 
-                  disabled={loading || otp.length !== 6}
-                >
-                  {loading ? 'Verifying...' : 'Verify OTP'}
-                </Button>
+                
+                <div className="flex flex-col gap-2">
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-india-saffron hover:bg-india-saffron/90" 
+                    disabled={loading || otp.length < 4}
+                  >
+                    {loading ? 'Verifying...' : 'Verify OTP'}
+                  </Button>
+                  
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleResendOtp}
+                    disabled={loading}
+                  >
+                    <RefreshCwIcon className="w-4 h-4 mr-2" />
+                    {loading ? 'Sending...' : 'Resend Verification Code'}
+                  </Button>
+                </div>
               </div>
             </form>
           )}

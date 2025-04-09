@@ -4,7 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Session, User, AuthError } from '@supabase/supabase-js';
 import { getUserProfile, updateUserProfile } from '@/services/supabaseService';
 
-// Define our user types
 export type VoterType = {
   id: string;
   phone: string;
@@ -24,12 +23,10 @@ export type AdminType = {
 
 export type UserType = VoterType | AdminType | null;
 
-// Check if user is admin
 export const isAdmin = (user: UserType): user is AdminType => {
   return user !== null && 'role' in user && user.role === 'admin';
 };
 
-// Check if user is voter
 export const isVoter = (user: UserType): user is VoterType => {
   return user !== null && !('role' in user);
 };
@@ -45,6 +42,7 @@ interface AuthContextType {
   adminLogin: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   loading: boolean;
+  resendOtp: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -69,16 +67,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
-  // Check if user is already logged in
   useEffect(() => {
-    // First set up the auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
         console.log('Auth state changed:', event);
         setSession(newSession);
         setSupabaseUser(newSession?.user ?? null);
         
-        // If user is logged in, fetch their profile
         if (newSession?.user) {
           setTimeout(() => fetchUserProfile(newSession.user.id), 0);
         } else {
@@ -87,7 +82,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
     );
 
-    // Then check for existing session
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
       setSupabaseUser(currentSession?.user ?? null);
@@ -109,7 +103,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const profile = await getUserProfile(userId);
       
       if (profile) {
-        // Convert to our VoterType format
         const voterUser: VoterType = {
           id: profile.id,
           phone: profile.phone || '',
@@ -122,7 +115,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         
         setUser(voterUser);
       } else {
-        // In case profile doesn't exist yet
         setUser(null);
       }
     } catch (error) {
@@ -131,18 +123,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  // Login function (phone OTP)
   const login = async (phone: string): Promise<boolean> => {
     try {
       setLoading(true);
       
-      // Validate phone format
       if (!/^\d{10}$/.test(phone)) {
         toast.error('Please enter a valid 10-digit phone number');
         return false;
       }
 
-      // Format phone with country code for Supabase
       const formattedPhone = `+91${phone}`;
       setPendingPhone(formattedPhone);
       
@@ -162,13 +151,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setLoading(false);
     }
   };
-  
-  // Email OTP login
+
   const loginWithEmail = async (email: string): Promise<boolean> => {
     try {
       setLoading(true);
       
-      // Validate email format
       if (!email.includes('@')) {
         toast.error('Please enter a valid email address');
         return false;
@@ -193,7 +180,32 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  // OTP verification - fixing the type error
+  const resendOtp = async (): Promise<boolean> => {
+    try {
+      setLoading(true);
+      
+      if (!pendingEmail) {
+        toast.error('No email found. Please start the login process again.');
+        return false;
+      }
+      
+      const { error } = await supabase.auth.signInWithOtp({
+        email: pendingEmail
+      });
+      
+      if (error) throw error;
+      
+      toast.success('New OTP sent to your email address');
+      return true;
+    } catch (error) {
+      console.error('OTP resend error:', error);
+      toast.error(error instanceof AuthError ? error.message : 'Failed to resend OTP. Please try again.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const verifyOtp = async (otp: string): Promise<boolean> => {
     try {
       setLoading(true);
@@ -203,33 +215,48 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         return false;
       }
       
-      // Fix: Use the correct type for verifyOtp parameters
       const { error } = await supabase.auth.verifyOtp({
         email: pendingEmail,
         token: otp,
         type: 'email'
       });
       
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes('expired') || error.code === 'otp_expired') {
+          toast.error('Your verification code has expired. Please request a new one.');
+          return false;
+        }
+        throw error;
+      }
       
       setPendingEmail(null);
       toast.success('OTP verified successfully');
       return true;
     } catch (error) {
       console.error('OTP verification error:', error);
-      toast.error(error instanceof AuthError ? error.message : 'OTP verification failed. Please try again.');
+      
+      if (error instanceof AuthError) {
+        if (error.message.includes('Token has expired')) {
+          toast.error('Your verification code has expired. Please request a new one.');
+        } else if (error.message.includes('Invalid')) {
+          toast.error('Invalid verification code. Please check and try again.');
+        } else {
+          toast.error(error.message);
+        }
+      } else {
+        toast.error('OTP verification failed. Please try again.');
+      }
+      
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // Verify voter ID or Aadhaar
   const verifyVoterId = async (id: string, idType: 'aadhaar' | 'voterId'): Promise<boolean> => {
     try {
       setLoading(true);
       
-      // Validate format
       if (idType === 'aadhaar' && !/^\d{12}$/.test(id)) {
         toast.error('Please enter a valid 12-digit Aadhaar number');
         return false;
@@ -245,7 +272,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         return false;
       }
       
-      // Update user profile
       const updates = idType === 'aadhaar' 
         ? { aadhaar_number: id } 
         : { voter_id: id };
@@ -253,7 +279,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const success = await updateUserProfile(supabaseUser.id, updates);
       
       if (success) {
-        // Update local user state
         if (isVoter(user)) {
           setUser({
             ...user,
@@ -275,12 +300,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  // Admin login (hardcoded for demo)
   const adminLogin = async (username: string, password: string): Promise<boolean> => {
     try {
       setLoading(true);
       
-      // Hardcoded admin credentials for demo
       if (username === 'admin' && password === 'password') {
         const adminUser: AdminType = {
           id: 'admin-1',
@@ -304,7 +327,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  // Logout function
   const logout = async () => {
     try {
       await supabase.auth.signOut();
@@ -326,7 +348,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     verifyVoterId,
     adminLogin,
     logout,
-    loading
+    loading,
+    resendOtp
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
