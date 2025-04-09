@@ -1,9 +1,8 @@
+
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
-import { Session, User, AuthError } from '@supabase/supabase-js';
-import { getUserProfile, updateUserProfile } from '@/services/supabaseService';
 
+// Define our user types
 export type VoterType = {
   id: string;
   phone: string;
@@ -23,26 +22,24 @@ export type AdminType = {
 
 export type UserType = VoterType | AdminType | null;
 
+// Check if user is admin
 export const isAdmin = (user: UserType): user is AdminType => {
   return user !== null && 'role' in user && user.role === 'admin';
 };
 
+// Check if user is voter
 export const isVoter = (user: UserType): user is VoterType => {
   return user !== null && !('role' in user);
 };
 
 interface AuthContextType {
   user: UserType;
-  supabaseUser: User | null;
-  session: Session | null;
   login: (phone: string) => Promise<boolean>;
-  loginWithEmail: (email: string) => Promise<boolean>;
   verifyOtp: (otp: string) => Promise<boolean>;
   verifyVoterId: (id: string, idType: 'aadhaar' | 'voterId') => Promise<boolean>;
   adminLogin: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   loading: boolean;
-  resendOtp: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -61,202 +58,129 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<UserType>(null);
-  const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
-  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
+  // Check if user is already logged in
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, newSession) => {
-        console.log('Auth state changed:', event);
-        setSession(newSession);
-        setSupabaseUser(newSession?.user ?? null);
-        
-        if (newSession?.user) {
-          setTimeout(() => fetchUserProfile(newSession.user.id), 0);
-        } else {
-          setUser(null);
-        }
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error('Failed to parse stored user:', error);
+        localStorage.removeItem('user');
       }
-    );
-
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      setSession(currentSession);
-      setSupabaseUser(currentSession?.user ?? null);
-      
-      if (currentSession?.user) {
-        fetchUserProfile(currentSession.user.id);
-      }
-      
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    }
+    setLoading(false);
   }, []);
 
-  const fetchUserProfile = async (userId: string) => {
-    try {
-      const profile = await getUserProfile(userId);
-      
-      if (profile) {
-        const voterUser: VoterType = {
-          id: profile.id,
-          phone: profile.phone || '',
-          name: profile.name || '',
-          aadhaarNumber: profile.aadhaar_number || undefined,
-          voterId: profile.voter_id || undefined,
-          constituency: profile.constituencies?.name || '',
-          hasVoted: profile.has_voted
-        };
-        
-        setUser(voterUser);
-      } else {
-        setUser(null);
-      }
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-      setUser(null);
+  // Save user to local storage whenever it changes
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('user');
     }
-  };
+  }, [user]);
 
+  // Login function (mock OTP flow)
   const login = async (phone: string): Promise<boolean> => {
     try {
       setLoading(true);
+      // In a real app, this would call an API to validate the phone and send OTP
+      // For this demo, we simply simulate the API call with a 1-second delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
+      // Check if phone number is in correct format
       if (!/^\d{10}$/.test(phone)) {
         toast.error('Please enter a valid 10-digit phone number');
         return false;
       }
 
-      const formattedPhone = `+91${phone}`;
-      setPendingPhone(formattedPhone);
-      
-      const { error } = await supabase.auth.signInWithOtp({
-        phone: formattedPhone
-      });
-      
-      if (error) throw error;
-      
+      // Store the phone number for the OTP verification step
+      setPendingPhone(phone);
       toast.success('OTP sent to your mobile number');
       return true;
     } catch (error) {
       console.error('Login error:', error);
-      toast.error(error instanceof AuthError ? error.message : 'Failed to send OTP. Please try again.');
+      toast.error('Failed to send OTP. Please try again.');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  const loginWithEmail = async (email: string): Promise<boolean> => {
-    try {
-      setLoading(true);
-      
-      if (!email.includes('@')) {
-        toast.error('Please enter a valid email address');
-        return false;
-      }
-
-      setPendingEmail(email);
-      
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email
-      });
-      
-      if (error) throw error;
-      
-      toast.success('OTP sent to your email address');
-      return true;
-    } catch (error) {
-      console.error('Email login error:', error);
-      toast.error(error instanceof AuthError ? error.message : 'Failed to send OTP. Please try again.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resendOtp = async (): Promise<boolean> => {
-    try {
-      setLoading(true);
-      
-      if (!pendingEmail) {
-        toast.error('No email found. Please start the login process again.');
-        return false;
-      }
-      
-      const { error } = await supabase.auth.signInWithOtp({
-        email: pendingEmail
-      });
-      
-      if (error) throw error;
-      
-      toast.success('New OTP sent to your email address');
-      return true;
-    } catch (error) {
-      console.error('OTP resend error:', error);
-      toast.error(error instanceof AuthError ? error.message : 'Failed to resend OTP. Please try again.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // OTP verification (mocked)
   const verifyOtp = async (otp: string): Promise<boolean> => {
     try {
       setLoading(true);
-      
-      if (!pendingEmail) {
-        toast.error('No email found. Please try logging in again.');
+      // Mock API call with a delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Simple validation for demo purposes
+      if (otp !== '123456' && otp !== '000000') {
+        toast.error('Invalid OTP. For demo, use 123456 or 000000');
         return false;
       }
-      
-      const { error } = await supabase.auth.verifyOtp({
-        email: pendingEmail,
-        token: otp,
-        type: 'email'
-      });
-      
-      if (error) {
-        if (error.message.includes('expired') || error.code === 'otp_expired') {
-          toast.error('Your verification code has expired. Please request a new one.');
-          return false;
-        }
-        throw error;
+
+      if (!pendingPhone) {
+        toast.error('No phone number found. Please try logging in again.');
+        return false;
       }
+
+      // Mock user data - in a real app, this would come from the backend
+      const mockUsers: VoterType[] = [
+        {
+          id: '1',
+          phone: '9876543210',
+          name: 'Rahul Sharma',
+          constituency: 'Mumbai North',
+          hasVoted: false
+        },
+        {
+          id: '2',
+          phone: '9876543211',
+          name: 'Priya Patel',
+          constituency: 'Delhi East',
+          hasVoted: true
+        }
+      ];
+
+      // Find user by phone or create a new one for demo
+      let foundUser = mockUsers.find(u => u.phone === pendingPhone);
       
-      setPendingEmail(null);
+      if (!foundUser) {
+        foundUser = {
+          id: Date.now().toString(),
+          phone: pendingPhone,
+          name: 'Demo User',
+          constituency: 'Demo Constituency',
+          hasVoted: false
+        };
+      }
+
+      setUser(foundUser);
+      setPendingPhone(null);
       toast.success('OTP verified successfully');
       return true;
     } catch (error) {
       console.error('OTP verification error:', error);
-      
-      if (error instanceof AuthError) {
-        if (error.message.includes('Token has expired')) {
-          toast.error('Your verification code has expired. Please request a new one.');
-        } else if (error.message.includes('Invalid')) {
-          toast.error('Invalid verification code. Please check and try again.');
-        } else {
-          toast.error(error.message);
-        }
-      } else {
-        toast.error('OTP verification failed. Please try again.');
-      }
-      
+      toast.error('OTP verification failed. Please try again.');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
+  // Verify voter ID or Aadhaar (mocked)
   const verifyVoterId = async (id: string, idType: 'aadhaar' | 'voterId'): Promise<boolean> => {
     try {
       setLoading(true);
-      
+      // Mock API call with a delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Validate format (simple validation for demo)
       if (idType === 'aadhaar' && !/^\d{12}$/.test(id)) {
         toast.error('Please enter a valid 12-digit Aadhaar number');
         return false;
@@ -267,28 +191,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         return false;
       }
 
-      if (!supabaseUser) {
-        toast.error('User profile not found. Please log in again.');
-        return false;
-      }
-      
-      const updates = idType === 'aadhaar' 
-        ? { aadhaar_number: id } 
-        : { voter_id: id };
-      
-      const success = await updateUserProfile(supabaseUser.id, updates);
-      
-      if (success) {
-        if (isVoter(user)) {
-          setUser({
-            ...user,
-            [idType === 'aadhaar' ? 'aadhaarNumber' : 'voterId']: id
-          });
-        }
-        
+      if (isVoter(user)) {
+        // Update user with the ID
+        setUser({
+          ...user,
+          [idType === 'aadhaar' ? 'aadhaarNumber' : 'voterId']: id
+        });
         toast.success(`${idType === 'aadhaar' ? 'Aadhaar' : 'Voter ID'} verified successfully`);
         return true;
       } else {
+        toast.error('User profile not found. Please log in again.');
         return false;
       }
     } catch (error) {
@@ -300,10 +212,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
+  // Admin login (hardcoded for demo)
   const adminLogin = async (username: string, password: string): Promise<boolean> => {
     try {
       setLoading(true);
-      
+      // Mock API call with a delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Hardcoded admin credentials for demo
       if (username === 'admin' && password === 'password') {
         const adminUser: AdminType = {
           id: 'admin-1',
@@ -327,29 +243,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const logout = async () => {
-    try {
-      await supabase.auth.signOut();
-      setUser(null);
-      toast.info('You have been logged out');
-    } catch (error) {
-      console.error('Error signing out:', error);
-      toast.error('Failed to sign out');
-    }
+  // Logout function
+  const logout = () => {
+    setUser(null);
+    toast.info('You have been logged out');
   };
 
   const value = {
     user,
-    supabaseUser,
-    session,
     login,
-    loginWithEmail,
     verifyOtp,
     verifyVoterId,
     adminLogin,
     logout,
-    loading,
-    resendOtp
+    loading
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
