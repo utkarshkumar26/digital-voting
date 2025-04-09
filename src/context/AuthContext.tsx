@@ -1,6 +1,9 @@
 
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import { Session, User, AuthError } from '@supabase/supabase-js';
+import { getUserProfile, updateUserProfile } from '@/services/supabaseService';
 
 // Define our user types
 export type VoterType = {
@@ -34,6 +37,8 @@ export const isVoter = (user: UserType): user is VoterType => {
 
 interface AuthContextType {
   user: UserType;
+  supabaseUser: User | null;
+  session: Session | null;
   login: (phone: string) => Promise<boolean>;
   verifyOtp: (otp: string) => Promise<boolean>;
   verifyVoterId: (id: string, idType: 'aadhaar' | 'voterId') => Promise<boolean>;
@@ -58,129 +63,141 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<UserType>(null);
+  const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
 
   // Check if user is already logged in
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Failed to parse stored user:', error);
-        localStorage.removeItem('user');
+    // First set up the auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, newSession) => {
+        console.log('Auth state changed:', event);
+        setSession(newSession);
+        setSupabaseUser(newSession?.user ?? null);
+        
+        // If user is logged in, fetch their profile
+        if (newSession?.user) {
+          setTimeout(() => fetchUserProfile(newSession.user.id), 0);
+        } else {
+          setUser(null);
+        }
       }
-    }
-    setLoading(false);
+    );
+
+    // Then check for existing session
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      setSession(currentSession);
+      setSupabaseUser(currentSession?.user ?? null);
+      
+      if (currentSession?.user) {
+        fetchUserProfile(currentSession.user.id);
+      }
+      
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // Save user to local storage whenever it changes
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem('user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('user');
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const profile = await getUserProfile(userId);
+      
+      if (profile) {
+        // Convert to our VoterType format
+        const voterUser: VoterType = {
+          id: profile.id,
+          phone: profile.phone || '',
+          name: profile.name || '',
+          aadhaarNumber: profile.aadhaar_number || undefined,
+          voterId: profile.voter_id || undefined,
+          constituency: profile.constituencies?.name || '',
+          hasVoted: profile.has_voted
+        };
+        
+        setUser(voterUser);
+      } else {
+        // In case profile doesn't exist yet
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      setUser(null);
     }
-  }, [user]);
+  };
 
-  // Login function (mock OTP flow)
+  // Login function (phone OTP)
   const login = async (phone: string): Promise<boolean> => {
     try {
       setLoading(true);
-      // In a real app, this would call an API to validate the phone and send OTP
-      // For this demo, we simply simulate the API call with a 1-second delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Check if phone number is in correct format
+      // Validate phone format
       if (!/^\d{10}$/.test(phone)) {
         toast.error('Please enter a valid 10-digit phone number');
         return false;
       }
 
-      // Store the phone number for the OTP verification step
-      setPendingPhone(phone);
+      // Format phone with country code for Supabase
+      const formattedPhone = `+91${phone}`;
+      setPendingPhone(formattedPhone);
+      
+      const { error } = await supabase.auth.signInWithOtp({
+        phone: formattedPhone
+      });
+      
+      if (error) throw error;
+      
       toast.success('OTP sent to your mobile number');
       return true;
     } catch (error) {
       console.error('Login error:', error);
-      toast.error('Failed to send OTP. Please try again.');
+      toast.error(error instanceof AuthError ? error.message : 'Failed to send OTP. Please try again.');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // OTP verification (mocked)
+  // OTP verification
   const verifyOtp = async (otp: string): Promise<boolean> => {
     try {
       setLoading(true);
-      // Mock API call with a delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Simple validation for demo purposes
-      if (otp !== '123456' && otp !== '000000') {
-        toast.error('Invalid OTP. For demo, use 123456 or 000000');
-        return false;
-      }
-
+      
       if (!pendingPhone) {
         toast.error('No phone number found. Please try logging in again.');
         return false;
       }
-
-      // Mock user data - in a real app, this would come from the backend
-      const mockUsers: VoterType[] = [
-        {
-          id: '1',
-          phone: '9876543210',
-          name: 'Rahul Sharma',
-          constituency: 'Mumbai North',
-          hasVoted: false
-        },
-        {
-          id: '2',
-          phone: '9876543211',
-          name: 'Priya Patel',
-          constituency: 'Delhi East',
-          hasVoted: true
-        }
-      ];
-
-      // Find user by phone or create a new one for demo
-      let foundUser = mockUsers.find(u => u.phone === pendingPhone);
       
-      if (!foundUser) {
-        foundUser = {
-          id: Date.now().toString(),
-          phone: pendingPhone,
-          name: 'Demo User',
-          constituency: 'Demo Constituency',
-          hasVoted: false
-        };
-      }
-
-      setUser(foundUser);
+      const { error } = await supabase.auth.verifyOtp({
+        phone: pendingPhone,
+        token: otp,
+        type: 'sms'
+      });
+      
+      if (error) throw error;
+      
       setPendingPhone(null);
       toast.success('OTP verified successfully');
       return true;
     } catch (error) {
       console.error('OTP verification error:', error);
-      toast.error('OTP verification failed. Please try again.');
+      toast.error(error instanceof AuthError ? error.message : 'OTP verification failed. Please try again.');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // Verify voter ID or Aadhaar (mocked)
+  // Verify voter ID or Aadhaar
   const verifyVoterId = async (id: string, idType: 'aadhaar' | 'voterId'): Promise<boolean> => {
     try {
       setLoading(true);
-      // Mock API call with a delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Validate format (simple validation for demo)
+      
+      // Validate format
       if (idType === 'aadhaar' && !/^\d{12}$/.test(id)) {
         toast.error('Please enter a valid 12-digit Aadhaar number');
         return false;
@@ -191,16 +208,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         return false;
       }
 
-      if (isVoter(user)) {
-        // Update user with the ID
-        setUser({
-          ...user,
-          [idType === 'aadhaar' ? 'aadhaarNumber' : 'voterId']: id
-        });
+      if (!supabaseUser) {
+        toast.error('User profile not found. Please log in again.');
+        return false;
+      }
+      
+      // Update user profile
+      const updates = idType === 'aadhaar' 
+        ? { aadhaar_number: id } 
+        : { voter_id: id };
+      
+      const success = await updateUserProfile(supabaseUser.id, updates);
+      
+      if (success) {
+        // Update local user state
+        if (isVoter(user)) {
+          setUser({
+            ...user,
+            [idType === 'aadhaar' ? 'aadhaarNumber' : 'voterId']: id
+          });
+        }
+        
         toast.success(`${idType === 'aadhaar' ? 'Aadhaar' : 'Voter ID'} verified successfully`);
         return true;
       } else {
-        toast.error('User profile not found. Please log in again.');
         return false;
       }
     } catch (error) {
@@ -216,9 +247,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const adminLogin = async (username: string, password: string): Promise<boolean> => {
     try {
       setLoading(true);
-      // Mock API call with a delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
+      
       // Hardcoded admin credentials for demo
       if (username === 'admin' && password === 'password') {
         const adminUser: AdminType = {
@@ -244,13 +273,21 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   // Logout function
-  const logout = () => {
-    setUser(null);
-    toast.info('You have been logged out');
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      toast.info('You have been logged out');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      toast.error('Failed to sign out');
+    }
   };
 
   const value = {
     user,
+    supabaseUser,
+    session,
     login,
     verifyOtp,
     verifyVoterId,

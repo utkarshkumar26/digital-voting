@@ -9,7 +9,152 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      candidates: {
+        Row: {
+          constituency_id: string
+          created_at: string
+          id: string
+          name: string
+          party: string
+          party_symbol: string
+        }
+        Insert: {
+          constituency_id: string
+          created_at?: string
+          id?: string
+          name: string
+          party: string
+          party_symbol: string
+        }
+        Update: {
+          constituency_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          party?: string
+          party_symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidates_constituency_id_fkey"
+            columns: ["constituency_id"]
+            isOneToOne: false
+            referencedRelation: "constituencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      constituencies: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          state: string
+          total_voters: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          state: string
+          total_voters?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          state?: string
+          total_voters?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          aadhaar_number: string | null
+          constituency_id: string | null
+          created_at: string
+          has_voted: boolean
+          id: string
+          name: string | null
+          phone: string | null
+          voter_id: string | null
+        }
+        Insert: {
+          aadhaar_number?: string | null
+          constituency_id?: string | null
+          created_at?: string
+          has_voted?: boolean
+          id: string
+          name?: string | null
+          phone?: string | null
+          voter_id?: string | null
+        }
+        Update: {
+          aadhaar_number?: string | null
+          constituency_id?: string | null
+          created_at?: string
+          has_voted?: boolean
+          id?: string
+          name?: string | null
+          phone?: string | null
+          voter_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_constituency_id_fkey"
+            columns: ["constituency_id"]
+            isOneToOne: false
+            referencedRelation: "constituencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      votes: {
+        Row: {
+          candidate_id: string
+          constituency_id: string
+          created_at: string
+          id: string
+          voter_id: string
+        }
+        Insert: {
+          candidate_id: string
+          constituency_id: string
+          created_at?: string
+          id?: string
+          voter_id: string
+        }
+        Update: {
+          candidate_id?: string
+          constituency_id?: string
+          created_at?: string
+          id?: string
+          voter_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "votes_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "votes_constituency_id_fkey"
+            columns: ["constituency_id"]
+            isOneToOne: false
+            referencedRelation: "constituencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "votes_voter_id_fkey"
+            columns: ["voter_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
