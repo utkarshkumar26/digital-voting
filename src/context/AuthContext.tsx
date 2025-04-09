@@ -40,6 +40,7 @@ interface AuthContextType {
   supabaseUser: User | null;
   session: Session | null;
   login: (phone: string) => Promise<boolean>;
+  loginWithEmail: (email: string) => Promise<boolean>;
   verifyOtp: (otp: string) => Promise<boolean>;
   verifyVoterId: (id: string, idType: 'aadhaar' | 'voterId') => Promise<boolean>;
   adminLogin: (username: string, password: string) => Promise<boolean>;
@@ -67,6 +68,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   // Check if user is already logged in
   useEffect(() => {
@@ -161,26 +163,58 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setLoading(false);
     }
   };
+  
+  // Email OTP login
+  const loginWithEmail = async (email: string): Promise<boolean> => {
+    try {
+      setLoading(true);
+      
+      // Validate email format
+      if (!email.includes('@')) {
+        toast.error('Please enter a valid email address');
+        return false;
+      }
+
+      setPendingEmail(email);
+      
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email
+      });
+      
+      if (error) throw error;
+      
+      toast.success('OTP sent to your email address');
+      return true;
+    } catch (error) {
+      console.error('Email login error:', error);
+      toast.error(error instanceof AuthError ? error.message : 'Failed to send OTP. Please try again.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // OTP verification
   const verifyOtp = async (otp: string): Promise<boolean> => {
     try {
       setLoading(true);
       
-      if (!pendingPhone) {
-        toast.error('No phone number found. Please try logging in again.');
+      if (!pendingPhone && !pendingEmail) {
+        toast.error('No authentication method found. Please try logging in again.');
         return false;
       }
       
       const { error } = await supabase.auth.verifyOtp({
         phone: pendingPhone,
+        email: pendingEmail,
         token: otp,
-        type: 'sms'
+        type: 'email'
       });
       
       if (error) throw error;
       
       setPendingPhone(null);
+      setPendingEmail(null);
       toast.success('OTP verified successfully');
       return true;
     } catch (error) {
@@ -289,6 +323,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     supabaseUser,
     session,
     login,
+    loginWithEmail,
     verifyOtp,
     verifyVoterId,
     adminLogin,
